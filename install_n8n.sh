@@ -1,10 +1,18 @@
 #!/bin/bash
 
 # ==============================================================================
-# n8n Self-Hosted Installer for Ubuntu 22.04 LTS
+# n8n Self-Hosted Installer for Ubuntu 22.04 LTS (Enterprise Grade)
 #
 # This script installs Docker, Traefik, PostgreSQL, and n8n in a production-ready
 # configuration with automatic SSL/TLS via Let's Encrypt.
+#
+# Features:
+# - Idempotent installation (protects existing data)
+# - Input validation for domains and emails
+# - Secure secrets management (.env with 600 permissions)
+# - Docker log rotation to prevent disk exhaustion
+# - Firewall configuration (UFW)
+# - Systemd integration for auto-restart
 # ==============================================================================
 
 set -e
@@ -13,19 +21,29 @@ set -e
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-log_info() {
-    echo -e "${GREEN}[INFO] $1${NC}"
-}
+# Global Variables
+INSTALL_DIR="/opt/n8n"
+ENV_FILE="$INSTALL_DIR/.env"
+COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+SERVICE_FILE="/etc/systemd/system/n8n-compose.service"
 
-log_warn() {
-    echo -e "${YELLOW}[WARN] $1${NC}"
-}
+# Logging Helpers
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_error() {
-    echo -e "${RED}[ERROR] $1${NC}"
+# Error Handling
+cleanup() {
+    if [ $? -ne 0 ]; then
+        log_error "Script failed. Please check the error messages above."
+        log_warn "If this is a fresh install, you may need to manually clean up $INSTALL_DIR"
+    fi
 }
+trap cleanup EXIT
 
 # 1. System Prep & Root Check
 check_root() {
@@ -37,20 +55,32 @@ check_root() {
 
 update_system() {
     log_info "Updating system packages..."
-    # Update package list and upgrade packages
-    apt-get update && apt-get upgrade -y
+    apt-get update -q && apt-get upgrade -y -q
 
-    log_info "Installing dependencies..."
-    # Install required dependencies for Docker and general system utilities
-    apt-get install -y curl wget gnupg git ca-certificates lsb-release
+    log_info "Installing system dependencies..."
+    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw
+}
+
+setup_firewall() {
+    log_info "Configuring UFW firewall..."
+    # Ensure we don't lock ourselves out
+    ufw allow OpenSSH
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+
+    # Check if UFW is already enabled to avoid disrupting active connections unnecessarily
+    if ! ufw status | grep -q "Status: active"; then
+        echo "y" | ufw enable
+        log_success "Firewall enabled and rules applied."
+    else
+        log_info "Firewall is already active. Rules updated."
+    fi
 }
 
 install_docker() {
-    # Check if Docker is already installed
     if ! command -v docker &> /dev/null; then
         log_info "Docker not found. Installing Docker..."
 
-        # Add Docker's official GPG key:
         mkdir -p /etc/apt/keyrings
         if [ -f /etc/apt/keyrings/docker.gpg ]; then
             rm /etc/apt/keyrings/docker.gpg
@@ -58,45 +88,83 @@ install_docker() {
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
 
-        # Add the repository to Apt sources:
         echo \
           "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
           $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
           tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-        apt-get update
-        # Install Docker Engine, CLI, containerd, and Compose plugin
-        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        apt-get update -q
+        apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     else
         log_info "Docker is already installed."
     fi
 
-    # Ensure Docker Compose (plugin) is available
     if ! docker compose version &> /dev/null; then
         log_error "Docker Compose plugin not found. Please verify Docker installation."
         exit 1
     fi
-
-    log_info "Docker and Docker Compose are installed successfully."
 }
 
-# 2. User Input
+# 2. User Input & Validation
+validate_domain() {
+    if [[ "$1" =~ ^([a-zA-Z0-9](([a-zA-Z0-9-]){0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+validate_email() {
+    if [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 get_user_input() {
+    # If secrets exist, we assume configuration is done to prevent overwriting
+    if [[ -f "$ENV_FILE" ]]; then
+        log_warn "Existing configuration found at $ENV_FILE."
+        read -p "Do you want to overwrite it? THIS WILL GENERATE NEW SECRETS AND MAY BREAK DB ACCESS. (y/N): " OVERWRITE
+        if [[ "${OVERWRITE,,}" != "y" ]]; then
+            log_info "Skipping configuration generation. Using existing settings."
+            source "$ENV_FILE"
+            SKIP_CONFIG=true
+            return
+        fi
+    fi
+
     echo ""
-    echo -e "${YELLOW}Please provide the configuration details:${NC}"
+    log_info "Please provide the configuration details:"
 
-    while [[ -z "$DOMAIN_NAME" ]]; do
+    while true; do
         read -p "Enter the Domain Name for n8n (e.g., n8n.example.com): " DOMAIN_NAME
+        if validate_domain "$DOMAIN_NAME"; then
+            break
+        else
+            log_warn "Invalid domain format. Please try again."
+        fi
     done
 
-    while [[ -z "$EMAIL_ADDRESS" ]]; do
+    while true; do
         read -p "Enter your Email Address (for Let's Encrypt SSL): " EMAIL_ADDRESS
+        if validate_email "$EMAIL_ADDRESS"; then
+            break
+        else
+            log_warn "Invalid email format. Please try again."
+        fi
     done
+
+    SKIP_CONFIG=false
 }
 
 # 3. Configuration & Secrets
-setup_directories_and_secrets() {
-    INSTALL_DIR="/opt/n8n"
+setup_configuration() {
+    if [[ "$SKIP_CONFIG" == "true" ]]; then
+        return
+    fi
+
     log_info "Creating installation directory at $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR"
 
@@ -106,31 +174,52 @@ setup_directories_and_secrets() {
     POSTGRES_USER="n8n"
     POSTGRES_DB="n8n"
 
-    log_info "Generated N8N_ENCRYPTION_KEY and POSTGRES_PASSWORD."
+    log_info "Generating secure .env file..."
+    cat <<EOF > "$ENV_FILE"
+# n8n Environment Configuration
+# Generated on $(date)
+
+DOMAIN_NAME=${DOMAIN_NAME}
+SSL_EMAIL=${EMAIL_ADDRESS}
+
+# Secrets
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+
+N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+# Database Connection (Internal)
+DB_TYPE=postgresdb
+DB_POSTGRESDB_HOST=postgres
+DB_POSTGRESDB_PORT=5432
+EOF
+
+    # Set strict permissions (600) so only root can read secrets
+    chmod 600 "$ENV_FILE"
+    log_success "Secrets generated and stored securely in $ENV_FILE."
 }
 
 # 4. Docker Setup
 create_docker_compose() {
+    # Always recreate docker-compose to ensure it matches the latest template
+    # (Environment variables handle the dynamic parts)
+
     log_info "Generating docker-compose.yml..."
 
-    # Create the docker-compose.yml file with Traefik, Postgres, and n8n
-    cat <<EOF > "$INSTALL_DIR/docker-compose.yml"
+    cat <<EOF > "$COMPOSE_FILE"
 services:
   traefik:
     image: traefik:v3.0
     command:
-      # Enable Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      # Entry points for HTTP and HTTPS
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      # Redirect HTTP to HTTPS
       - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
       - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
-      # Let's Encrypt Resolver Configuration (TLS Challenge)
       - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=${EMAIL_ADDRESS}"
+      - "--certificatesresolvers.myresolver.acme.email=\${SSL_EMAIL}"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
@@ -141,23 +230,33 @@ services:
     networks:
       - n8n-net
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     restart: always
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=\${POSTGRES_USER}
+      - POSTGRES_PASSWORD=\${POSTGRES_PASSWORD}
+      - POSTGRES_DB=\${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - n8n-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U \${POSTGRES_USER} -d \${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   n8n:
     image: n8nio/n8n:latest
@@ -166,17 +265,16 @@ services:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
-      - DB_POSTGRESDB_USER=${POSTGRES_USER}
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - N8N_HOST=${DOMAIN_NAME}
+      - DB_POSTGRESDB_DATABASE=\${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=\${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=\${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=\${N8N_ENCRYPTION_KEY}
+      - N8N_HOST=\${DOMAIN_NAME}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${DOMAIN_NAME}/
+      - WEBHOOK_URL=https://\${DOMAIN_NAME}/
       - GENERIC_TIMEZONE=UTC
     ports:
-      # Expose locally for health checks
       - "127.0.0.1:5678:5678"
     links:
       - postgres
@@ -189,11 +287,16 @@ services:
       - n8n-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.n8n.rule=Host(\`${DOMAIN_NAME}\`)"
+      - "traefik.http.routers.n8n.rule=Host(\`\${DOMAIN_NAME}\`)"
       - "traefik.http.routers.n8n.entrypoints=websecure"
       - "traefik.http.routers.n8n.tls=true"
       - "traefik.http.routers.n8n.tls.certresolver=myresolver"
       - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   n8n_data:
@@ -207,10 +310,9 @@ EOF
 
 # 5. Systemd Integration
 setup_systemd() {
-    log_info "Creating systemd service at /etc/systemd/system/n8n-compose.service..."
+    log_info "Configuring systemd service..."
 
-    # Create systemd unit file
-    cat <<EOF > /etc/systemd/system/n8n-compose.service
+    cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=n8n Docker Compose Service
 Requires=docker.service
@@ -220,9 +322,7 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$INSTALL_DIR
-# Start the compose stack
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
-# Stop the compose stack
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=0
 
@@ -230,39 +330,32 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 EOF
 
-    # Reload systemd to recognize the new service
     systemctl daemon-reload
-    # Enable the service to start on boot
-    systemctl enable n8n-compose.service
+    systemctl enable "$(basename "$SERVICE_FILE")"
 
-    log_info "Starting n8n service..."
-    # Start the service immediately
-    systemctl start n8n-compose.service
+    log_info "Starting n8n service via systemd..."
+    systemctl start "$(basename "$SERVICE_FILE")"
 }
 
 # 6. Verification & Health Check
 verify_installation() {
-    log_info "Waiting for n8n to start (this may take a minute)..."
+    log_info "Waiting for n8n to start (this may take up to 60 seconds)..."
 
-    # Simple loop to check health
-    # Note: n8n usually takes a bit to migrate DB and start
     local retries=30
-    local wait=5
+    local wait=2
     local success=0
 
     for ((i=1; i<=retries; i++)); do
-        # We check localhost:5678/healthz because we mapped it to 127.0.0.1 in compose
+        # Check health endpoint on local loopback
         if curl -s -f http://127.0.0.1:5678/healthz > /dev/null 2>&1; then
             success=1
             break
         fi
-        echo -n "."
         sleep $wait
     done
-    echo ""
 
     if [[ $success -eq 1 ]]; then
-        log_info "n8n is running and healthy!"
+        log_success "n8n is running and healthy!"
     else
         log_error "n8n failed to start within the timeout period."
         log_error "Please check logs with: cd $INSTALL_DIR && docker compose logs"
@@ -272,7 +365,11 @@ verify_installation() {
 
 # 7. Final Output
 show_summary() {
-    # Clear screen for a clean summary
+    # Load env variables for display if we skipped config
+    if [[ "$SKIP_CONFIG" == "true" ]]; then
+        source "$ENV_FILE"
+    fi
+
     clear
     echo -e "${GREEN}======================================================${NC}"
     echo -e "${GREEN}       n8n Installation Completed Successfully!       ${NC}"
@@ -281,15 +378,19 @@ show_summary() {
     echo -e "Access your n8n instance at: ${YELLOW}https://${DOMAIN_NAME}${NC}"
     echo ""
     echo -e "Initial Setup:"
-    echo -e "  Open the URL above and follow the on-screen instructions to create the first user."
+    echo -e "  1. Open the URL above."
+    echo -e "  2. Follow the on-screen instructions to create the first user."
     echo ""
-    echo -e "${RED}IMPORTANT SECRETS (Save these!):${NC}"
-    echo -e "  Encryption Key (N8N_ENCRYPTION_KEY): ${YELLOW}${N8N_ENCRYPTION_KEY}${NC}"
-    echo -e "  Postgres User: ${YELLOW}${POSTGRES_USER}${NC}"
-    echo -e "  Postgres Password: ${YELLOW}${POSTGRES_PASSWORD}${NC}"
+    echo -e "${RED}IMPORTANT SECRETS:${NC}"
+    echo -e "  Your secrets are stored securely in: ${YELLOW}${ENV_FILE}${NC}"
+    echo -e "  To view them, run: ${BLUE}cat ${ENV_FILE}${NC}"
     echo ""
-    echo -e "Configuration Directory: ${INSTALL_DIR}"
-    echo -e "Service Status: systemctl status n8n-compose"
+    echo -e "Encryption Key (Save this!): ${YELLOW}${N8N_ENCRYPTION_KEY}${NC}"
+    echo ""
+    echo -e "Service Management:"
+    echo -e "  Status:  ${BLUE}systemctl status n8n-compose${NC}"
+    echo -e "  Logs:    ${BLUE}cd $INSTALL_DIR && docker compose logs -f${NC}"
+    echo -e "  Stop:    ${BLUE}systemctl stop n8n-compose${NC}"
     echo ""
 }
 
@@ -297,8 +398,9 @@ show_summary() {
 check_root
 get_user_input
 update_system
+setup_firewall
 install_docker
-setup_directories_and_secrets
+setup_configuration
 create_docker_compose
 setup_systemd
 verify_installation
