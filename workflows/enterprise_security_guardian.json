@@ -1,0 +1,362 @@
+{
+  "name": "Enterprise Security Guardian (Google Level)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger",
+      "name": "Start Scan",
+      "webhookId": "security-guardian"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        220,
+        440
+      ],
+      "id": "memory-window",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a SAST (Static Application Security Testing) Expert. \n\nAnalyze the code for: SQL Injection, XSS, CSRF, RCE, and Logic bugs. \n\nOutput a Markdown list of findings."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        -200
+      ],
+      "id": "sast-agent",
+      "name": "SAST Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        400,
+        0
+      ],
+      "id": "ollama-sast",
+      "name": "Ollama SAST",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Supply Chain Security Expert. \n\nAnalyze imports and dependencies for: Typosquatting, deprecated packages, and known vulnerabilities (CVEs). \n\nOutput a Markdown list of findings."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        200
+      ],
+      "id": "dep-agent",
+      "name": "Dependency Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        400,
+        400
+      ],
+      "id": "ollama-dep",
+      "name": "Ollama Dep",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Compliance Officer (GDPR/SOC2). \n\nAnalyze the code for PII handling, logging of sensitive data, and encryption standards. \n\nOutput a Markdown list of findings."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        600
+      ],
+      "id": "comp-agent",
+      "name": "Compliance Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        400,
+        800
+      ],
+      "id": "ollama-comp",
+      "name": "Ollama Compliance",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        800,
+        200
+      ],
+      "id": "merge",
+      "name": "Merge Reports"
+    },
+    {
+      "parameters": {
+        "jsCode": "const reports = items.map(item => item.json.text).join('\\n\\n---\\n\\n');\nreturn [{ json: { reports } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        200
+      ],
+      "id": "aggregator",
+      "name": "Aggregate Reports"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Chief Information Security Officer (CISO). \n\nReview the attached reports from SAST, Dependency, and Compliance teams. \n\nGenerate a consolidated, prioritized Security Audit Report with an Executive Summary and Remediation Plan.\n\nCONTEXT (Sub-Agent Reports):\n{{ $json.reports }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        200
+      ],
+      "id": "ciso-agent",
+      "name": "CISO Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        400
+      ],
+      "id": "ollama-ciso",
+      "name": "Ollama CISO",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start Scan": {
+      "main": [
+        [
+          {
+            "node": "SAST Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dependency Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compliance Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SAST Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dependency Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Reports",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Compliance Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Reports",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Reports": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Reports": {
+      "main": [
+        [
+          {
+            "node": "CISO Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama SAST": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "SAST Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Dep": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Dependency Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Compliance": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Compliance Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama CISO": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "CISO Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "SAST Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dependency Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compliance Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CISO Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

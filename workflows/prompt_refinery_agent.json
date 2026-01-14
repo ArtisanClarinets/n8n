@@ -1,0 +1,300 @@
+{
+  "name": "Prompt Refinery & Self-Correction Agent (Fortune 500)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger",
+      "name": "Start Chat",
+      "webhookId": "prompt-refinery"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        220,
+        440
+      ],
+      "id": "memory-window",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Senior Strategic Analyst. \n\nGOAL: Deeply analyze the user's raw request. \n\nOUTPUT SECTIONS:\n1. **Core Intent**: What is the user actually trying to achieve?\n2. **Implicit Constraints**: What isn't said but is implied (e.g., tone, format)?\n3. **Success Criteria**: What does a 'perfect' result look like?\n\nDo NOT generate the final prompt yet. Just analyze."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        220,
+        0
+      ],
+      "id": "analyst-agent",
+      "name": "Intent Analyst"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "id": "ollama-analyst",
+      "name": "Ollama Analyst",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Principal Prompt Engineer at Google. \n\nGOAL: Based on the Analyst's analysis, draft a sophisticated System Prompt.\n\nTECHNIQUES TO USE:\n- Chain of Thought (CoT)\n- Few-Shot Prompting\n- Delimiter usage (XML tags)\n- Persona definition\n\nOutput the DRAFT PROMPT in a markdown block."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        540,
+        0
+      ],
+      "id": "architect-agent",
+      "name": "Prompt Architect"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        540,
+        220
+      ],
+      "id": "ollama-architect",
+      "name": "Ollama Architect",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are an AI Safety & Logic Auditor (Red Team). \n\nGOAL: Ruthlessly critique the Draft Prompt.\n\nCHECK FOR:\n1. **Ambiguity**: Can the LLM misinterpret instructions?\n2. **Security**: Are there injection risks or safety bypasses?\n3. **Bias**: Is the persona too narrow or biased?\n4. **Logic**: Are the steps coherent?\n\nCONTEXT (Draft Prompt):\n{{ $('Prompt Architect').item.json.text }}\n\nOutput a list of CRITICAL ISSUES to fix."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        860,
+        0
+      ],
+      "id": "redteam-agent",
+      "name": "Red Team Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        860,
+        220
+      ],
+      "id": "ollama-redteam",
+      "name": "Ollama RedTeam",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Synthesis Engine. \n\nGOAL: Rewrite the Final Prompt by applying the Red Team's feedback to the Architect's draft. \n\nINSTRUCTIONS:\n- Fix all ambiguities.\n- Add safety guardrails.\n- Polish the language for maximum clarity.\n\nCONTEXT:\nDraft Prompt: {{ $('Prompt Architect').item.json.text }}\nRed Team Feedback: {{ $('Red Team Agent').item.json.text }}\n\nOUTPUT ONLY THE FINAL PERFECTED PROMPT inside a code block."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1180,
+        0
+      ],
+      "id": "refiner-agent",
+      "name": "Refiner Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        220
+      ],
+      "id": "ollama-refiner",
+      "name": "Ollama Refiner",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start Chat": {
+      "main": [
+        [
+          {
+            "node": "Intent Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Analyst": {
+      "main": [
+        [
+          {
+            "node": "Prompt Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt Architect": {
+      "main": [
+        [
+          {
+            "node": "Red Team Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Red Team Agent": {
+      "main": [
+        [
+          {
+            "node": "Refiner Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Analyst": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Intent Analyst",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Architect": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Prompt Architect",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama RedTeam": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Red Team Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Refiner": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Refiner Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Intent Analyst",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prompt Architect",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Red Team Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refiner Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

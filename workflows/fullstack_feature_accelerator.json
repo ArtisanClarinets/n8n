@@ -1,0 +1,300 @@
+{
+  "name": "Fullstack Feature Accelerator (Google Level)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger",
+      "name": "Start Chat",
+      "webhookId": "feature-accelerator"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        220,
+        440
+      ],
+      "id": "memory-window",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Senior Product Owner at a Fortune 500 tech company. \n\nYour goal: Analyze the user's feature request and break it down into detailed User Stories and Acceptance Criteria. \n\nOutput Format: clear, structured Markdown."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        220,
+        0
+      ],
+      "id": "product-owner",
+      "name": "Product Owner Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "id": "ollama-po",
+      "name": "Ollama PO",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Principal Database Architect specializing in Prisma and PostgreSQL. \n\nTask: Based on the User Stories provided, design a production-ready Prisma Schema. \n\nGuidelines:\n- Use UUIDs for IDs.\n- specific mapping for table names.\n- Indexes for performance.\n- Enums for status fields.\n\nCONTEXT (User Stories):\n{{ $('Product Owner Agent').item.json.text }}\n\nOutput only the Prisma schema code block."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        540,
+        0
+      ],
+      "id": "db-architect",
+      "name": "DB Architect Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        540,
+        220
+      ],
+      "id": "ollama-db",
+      "name": "Ollama DB",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Senior Backend Engineer specializing in Next.js 16 Server Actions. \n\nTask: Create the Server Actions required to implement the features defined in the schema and stories. \n\nGuidelines:\n- Use 'use server'.\n- Implement Zod validation.\n- Handle errors gracefully.\n- Secure database access.\n\nCONTEXT:\nUser Stories: {{ $('Product Owner Agent').item.json.text }}\nSchema: {{ $('DB Architect Agent').item.json.text }}\n\nOutput the TypeScript code."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        860,
+        0
+      ],
+      "id": "backend-dev",
+      "name": "Backend Dev Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        860,
+        220
+      ],
+      "id": "ollama-be",
+      "name": "Ollama BE",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Senior Frontend Engineer expert in React 19, Next.js 16, and Tailwind CSS. \n\nTask: Build the React Server Components and Client Components needed. \n\nGuidelines:\n- Use Shadcn/UI patterns (simulated).\n- Use React Suspense and Streaming.\n- Responsive design with Tailwind.\n- Accessibility (ARIA) compliance.\n\nCONTEXT:\nUser Stories: {{ $('Product Owner Agent').item.json.text }}\nBackend Actions: {{ $('Backend Dev Agent').item.json.text }}\n\nOutput the TSX code."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1180,
+        0
+      ],
+      "id": "frontend-dev",
+      "name": "Frontend Dev Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        220
+      ],
+      "id": "ollama-fe",
+      "name": "Ollama FE",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start Chat": {
+      "main": [
+        [
+          {
+            "node": "Product Owner Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Owner Agent": {
+      "main": [
+        [
+          {
+            "node": "DB Architect Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Architect Agent": {
+      "main": [
+        [
+          {
+            "node": "Backend Dev Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backend Dev Agent": {
+      "main": [
+        [
+          {
+            "node": "Frontend Dev Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama PO": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Product Owner Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama DB": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "DB Architect Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama BE": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Backend Dev Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama FE": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Frontend Dev Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Product Owner Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB Architect Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backend Dev Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Frontend Dev Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
