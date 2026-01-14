@@ -298,10 +298,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: always
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - n8n-net
+    # Uncomment to enable GPU support (requires NVIDIA Container Toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   n8n_data:
   postgres_data:
   traefik_data:
+  ollama_data:
 
 networks:
   n8n-net:
