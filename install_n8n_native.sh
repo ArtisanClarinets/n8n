@@ -3,10 +3,10 @@
 # ==============================================================================
 # n8n Self-Hosted Installer - Native Method (Ubuntu 22.04 LTS)
 #
-# Architecture: Node.js (PM2) + PostgreSQL + Nginx (Reverse Proxy) + Certbot
+# Architecture: Node.js + Supervisor + PostgreSQL + Nginx (Reverse Proxy) + Certbot
 #
 # This script installs n8n directly on the OS ("bare metal") without Docker.
-# It is an alternative for environments where Docker is not preferred.
+# It uses Supervisor for process management and Nginx for SSL termination.
 # ==============================================================================
 
 set -e
@@ -21,7 +21,8 @@ NC='\033[0m'
 # Variables
 INSTALL_DIR="/opt/n8n"
 ENV_FILE="$INSTALL_DIR/.env"
-PM2_CONFIG="$INSTALL_DIR/ecosystem.config.js"
+START_SCRIPT="$INSTALL_DIR/start_n8n.sh"
+SUPERVISOR_CONF="/etc/supervisor/conf.d/n8n.conf"
 N8N_USER="n8n"
 
 # Logging
@@ -48,7 +49,7 @@ check_root() {
 update_system() {
     log_info "Updating system packages..."
     apt-get update -q && apt-get upgrade -y -q
-    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw build-essential
+    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw build-essential supervisor
 }
 
 setup_firewall() {
@@ -126,6 +127,10 @@ get_user_input() {
         if validate_email "$EMAIL_ADDRESS"; then break; fi
         log_warn "Invalid email."
     done
+
+    read -p "Enter Port for n8n to listen on (default: 5678): " N8N_PORT
+    N8N_PORT=${N8N_PORT:-5678}
+
     SKIP_CONFIG=false
 }
 
@@ -149,10 +154,10 @@ setup_database() {
     log_success "Database configured."
 }
 
-# 5. App Setup (n8n + PM2)
+# 5. App Setup (n8n + Supervisor)
 setup_n8n() {
-    log_info "Installing n8n and PM2 globally..."
-    npm install -g n8n pm2
+    log_info "Installing n8n globally..."
+    npm install -g n8n
 
     # Create dedicated user
     if ! id -u "$N8N_USER" >/dev/null 2>&1; then
@@ -170,10 +175,25 @@ setup_n8n() {
 # n8n Secrets
 DOMAIN_NAME=${DOMAIN_NAME}
 EMAIL_ADDRESS=${EMAIL_ADDRESS}
+N8N_PORT=${N8N_PORT}
 POSTGRES_USER=${POSTGRES_USER}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=${POSTGRES_DB}
 N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+# N8N Config
+DB_TYPE=postgresdb
+DB_POSTGRESDB_HOST=localhost
+DB_POSTGRESDB_PORT=5432
+DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+DB_POSTGRESDB_USER=${POSTGRES_USER}
+DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+N8N_HOST=${DOMAIN_NAME}
+N8N_PORT=${N8N_PORT}
+N8N_PROTOCOL=https
+WEBHOOK_URL=https://${DOMAIN_NAME}/
+N8N_LISTEN_ADDRESS=127.0.0.1
+GENERIC_TIMEZONE=UTC
 EOF
         chmod 600 "$ENV_FILE"
         chown "$N8N_USER:$N8N_USER" "$ENV_FILE"
@@ -181,41 +201,34 @@ EOF
         source "$ENV_FILE"
     fi
 
-    # Create Ecosystem File
-    cat <<EOF > "$PM2_CONFIG"
-module.exports = {
-    apps: [{
-        name: "n8n",
-        script: "n8n",
-        env: {
-            DB_TYPE: "postgresdb",
-            DB_POSTGRESDB_HOST: "localhost",
-            DB_POSTGRESDB_PORT: 5432,
-            DB_POSTGRESDB_DATABASE: "${POSTGRES_DB}",
-            DB_POSTGRESDB_USER: "${POSTGRES_USER}",
-            DB_POSTGRESDB_PASSWORD: "${POSTGRES_PASSWORD}",
-            N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY}",
-            N8N_HOST: "${DOMAIN_NAME}",
-            N8N_PORT: 5678,
-            N8N_PROTOCOL: "https",
-            WEBHOOK_URL: "https://${DOMAIN_NAME}/",
-            N8N_LISTEN_ADDRESS: "127.0.0.1",
-            GENERIC_TIMEZONE: "UTC"
-        }
-    }]
-}
+    # Create Start Script
+    log_info "Creating startup script..."
+    cat <<EOF > "$START_SCRIPT"
+#!/bin/bash
+set -a
+source $ENV_FILE
+set +a
+exec n8n
 EOF
-    chown "$N8N_USER:$N8N_USER" "$PM2_CONFIG"
+    chmod +x "$START_SCRIPT"
+    chown "$N8N_USER:$N8N_USER" "$START_SCRIPT"
 
-    # Start with PM2 as user
-    log_info "Starting n8n with PM2..."
-    # We use 'runuser' to execute pm2 commands as the n8n user
-    runuser -l "$N8N_USER" -c "pm2 start $PM2_CONFIG --update-env"
-    runuser -l "$N8N_USER" -c "pm2 save"
+    # Configure Supervisor
+    log_info "Configuring Supervisor..."
+    cat <<EOF > "$SUPERVISOR_CONF"
+[program:n8n]
+command=$START_SCRIPT
+user=$N8N_USER
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/n8n.err.log
+stdout_logfile=/var/log/n8n.out.log
+environment=NODE_ENV="production"
+EOF
 
-    # Setup PM2 Startup (Needs root to execute the output of startup)
-    log_info "Configuring PM2 startup..."
-    env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u "$N8N_USER" --hp "/home/$N8N_USER" | bash
+    supervisorctl reread
+    supervisorctl update
+    log_success "n8n configured with Supervisor."
 }
 
 # 6. Nginx & SSL
@@ -231,12 +244,16 @@ server {
     server_name $DOMAIN_NAME;
 
     location / {
-        proxy_pass http://127.0.0.1:5678;
+        proxy_pass http://127.0.0.1:${N8N_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
+
+        # Security Headers
+        add_header X-Frame-Options SAMEORIGIN;
+        add_header X-Content-Type-Options nosniff;
     }
 }
 EOF
@@ -258,13 +275,13 @@ EOF
 verify_installation() {
     log_info "Waiting for n8n to start..."
     for i in {1..30}; do
-        if curl -s -f http://127.0.0.1:5678/healthz >/dev/null 2>&1; then
+        if curl -s -f http://127.0.0.1:${N8N_PORT}/healthz >/dev/null 2>&1; then
             log_success "n8n is running!"
             return
         fi
         sleep 2
     done
-    log_error "n8n did not start in time. Check 'pm2 logs' as user $N8N_USER."
+    log_error "n8n did not start in time. Check supervisor logs: /var/log/n8n.err.log"
     exit 1
 }
 
@@ -279,8 +296,8 @@ show_summary() {
     echo ""
     echo -e "Service User: ${YELLOW}${N8N_USER}${NC}"
     echo -e "Secrets File: ${YELLOW}${ENV_FILE}${NC}"
-    echo -e "Logs:         ${BLUE}sudo -u ${N8N_USER} pm2 logs${NC}"
-    echo -e "Restart:      ${BLUE}sudo -u ${N8N_USER} pm2 restart n8n${NC}"
+    echo -e "Manager:      ${BLUE}supervisorctl status n8n${NC}"
+    echo -e "Logs:         ${BLUE}tail -f /var/log/n8n.out.log${NC}"
     echo ""
     echo -e "${RED}SAVE THIS KEY:${NC} ${N8N_ENCRYPTION_KEY}"
     echo ""

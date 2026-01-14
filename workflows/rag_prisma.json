@@ -1,0 +1,157 @@
+{
+  "name": "Prisma & Source Code RAG Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger-node",
+      "name": "When chat message received",
+      "webhookId": "rag-agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a helpful coding assistant. You have access to a knowledge base of Prisma schemas and source code documentation. Use the vector store tool to answer questions based on the provided context."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        220,
+        0
+      ],
+      "id": "ai-agent",
+      "name": "RAG Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        220,
+        240
+      ],
+      "id": "ollama-model",
+      "name": "Ollama Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "project_knowledge_base",
+        "description": "Search the project documentation and schema"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1,
+      "position": [
+        460,
+        240
+      ],
+      "id": "vector-tool",
+      "name": "Vector Store Tool"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1,
+      "position": [
+        460,
+        440
+      ],
+      "id": "vector-store",
+      "name": "In-Memory Vector Store"
+    },
+    {
+      "parameters": {
+        "modelName": "nomic-embed-text"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        460,
+        640
+      ],
+      "id": "embeddings",
+      "name": "Ollama Embeddings",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "RAG Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "RAG Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In-Memory Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "In-Memory Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
