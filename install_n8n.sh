@@ -3,15 +3,15 @@
 # ==============================================================================
 # n8n Self-Hosted Installer for Ubuntu 22.04 LTS (Enterprise Grade)
 #
-# This script installs Docker, Traefik, PostgreSQL, and n8n in a production-ready
-# configuration with automatic SSL/TLS via Let's Encrypt.
+# This script installs Docker, PostgreSQL, Ollama, and n8n in a production-ready
+# configuration. It uses Nginx on the host for SSL termination/reverse proxy.
 #
 # Features:
-# - Idempotent installation (protects existing data)
+# - Idempotent installation
 # - Input validation for domains and emails
 # - Secure secrets management (.env with 600 permissions)
-# - Docker log rotation to prevent disk exhaustion
-# - Firewall configuration (UFW)
+# - Docker log rotation
+# - Host-based Nginx + Certbot for standard SSL management
 # - Systemd integration for auto-restart
 # ==============================================================================
 
@@ -58,7 +58,7 @@ update_system() {
     apt-get update -q && apt-get upgrade -y -q
 
     log_info "Installing system dependencies..."
-    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw
+    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw nginx certbot python3-certbot-nginx
 }
 
 setup_firewall() {
@@ -156,6 +156,9 @@ get_user_input() {
         fi
     done
 
+    read -p "Enter Port for n8n to listen on (default: 5678): " N8N_PORT
+    N8N_PORT=${N8N_PORT:-5678}
+
     SKIP_CONFIG=false
 }
 
@@ -181,6 +184,7 @@ setup_configuration() {
 
 DOMAIN_NAME=${DOMAIN_NAME}
 SSL_EMAIL=${EMAIL_ADDRESS}
+N8N_PORT=${N8N_PORT}
 
 # Secrets
 POSTGRES_USER=${POSTGRES_USER}
@@ -209,33 +213,6 @@ create_docker_compose() {
 
     cat <<EOF > "$COMPOSE_FILE"
 services:
-  traefik:
-    image: traefik:v3.0
-    command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
-      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=\${SSL_EMAIL}"
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "traefik_data:/letsencrypt"
-    networks:
-      - n8n-net
-    restart: always
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
   postgres:
     image: postgres:16-alpine
     restart: always
@@ -275,7 +252,7 @@ services:
       - WEBHOOK_URL=https://\${DOMAIN_NAME}/
       - GENERIC_TIMEZONE=UTC
     ports:
-      - "127.0.0.1:5678:5678"
+      - "127.0.0.1:\${N8N_PORT}:5678"
     links:
       - postgres
     depends_on:
@@ -285,13 +262,6 @@ services:
       - n8n_data:/home/node/.n8n
     networks:
       - n8n-net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.n8n.rule=Host(\`\${DOMAIN_NAME}\`)"
-      - "traefik.http.routers.n8n.entrypoints=websecure"
-      - "traefik.http.routers.n8n.tls=true"
-      - "traefik.http.routers.n8n.tls.certresolver=myresolver"
-      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
     logging:
       driver: "json-file"
       options:
@@ -322,7 +292,6 @@ services:
 volumes:
   n8n_data:
   postgres_data:
-  traefik_data:
   ollama_data:
 
 networks:
@@ -359,7 +328,47 @@ EOF
     systemctl start "$(basename "$SERVICE_FILE")"
 }
 
-# 6. Verification & Health Check
+# 6. Nginx & SSL
+setup_nginx_ssl() {
+    log_info "Configuring Nginx..."
+
+    NGINX_CONF="/etc/nginx/sites-available/$DOMAIN_NAME"
+
+    # Basic HTTP config for Certbot to verify
+    cat <<EOF > "$NGINX_CONF"
+server {
+    listen 80;
+    server_name $DOMAIN_NAME;
+
+    location / {
+        proxy_pass http://127.0.0.1:${N8N_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+
+        # Security Headers
+        add_header X-Frame-Options SAMEORIGIN;
+        add_header X-Content-Type-Options nosniff;
+    }
+}
+EOF
+
+    ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/"
+    rm -f /etc/nginx/sites-enabled/default
+
+    # Test and reload
+    nginx -t && systemctl reload nginx
+
+    log_info "Obtaining SSL certificate with Certbot..."
+    # --nginx plugin automatically edits the config to add SSL and redirect HTTP->HTTPS
+    certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect
+
+    log_success "SSL configured successfully."
+}
+
+# 7. Verification & Health Check
 verify_installation() {
     log_info "Waiting for n8n to start (this may take up to 60 seconds)..."
 
@@ -369,7 +378,7 @@ verify_installation() {
 
     for ((i=1; i<=retries; i++)); do
         # Check health endpoint on local loopback
-        if curl -s -f http://127.0.0.1:5678/healthz > /dev/null 2>&1; then
+        if curl -s -f http://127.0.0.1:${N8N_PORT}/healthz > /dev/null 2>&1; then
             success=1
             break
         fi
@@ -385,7 +394,7 @@ verify_installation() {
     fi
 }
 
-# 7. Final Output
+# 8. Final Output
 show_summary() {
     # Load env variables for display if we skipped config
     if [[ "$SKIP_CONFIG" == "true" ]]; then
@@ -425,5 +434,6 @@ install_docker
 setup_configuration
 create_docker_compose
 setup_systemd
+setup_nginx_ssl
 verify_installation
 show_summary

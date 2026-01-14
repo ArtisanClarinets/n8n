@@ -1,0 +1,80 @@
+{
+  "name": "Next.js 16 & React 19 Coding Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger-node",
+      "name": "When chat message received",
+      "webhookId": "nextjs-agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are an expert Full Stack Developer specializing in Next.js 16, React 19, and Prisma.\n\nYour goal is to generate high-quality, production-ready code following the latest best practices:\n- Use React Server Components (RSC) by default.\n- Use Server Actions for mutations.\n- Use Tailwind CSS for styling.\n- Use Prisma for database schema and queries.\n\nWhen asked to create a component or feature, provide the full file content including imports."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        220,
+        0
+      ],
+      "id": "ai-agent",
+      "name": "Next.js Expert Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "id": "ollama-model",
+      "name": "Ollama Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Next.js Expert Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Next.js Expert Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
