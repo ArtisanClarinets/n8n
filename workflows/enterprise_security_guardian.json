@@ -16,6 +16,17 @@
       "webhookId": "security-guardian"
     },
     {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        220,
+        440
+      ],
+      "id": "memory-window",
+      "name": "Window Buffer Memory"
+    },
+    {
       "parameters": {
         "options": {
           "systemMessage": "You are a SAST (Static Application Security Testing) Expert. \n\nAnalyze the code for: SQL Injection, XSS, CSRF, RCE, and Logic bugs. \n\nOutput a Markdown list of findings."
@@ -141,14 +152,27 @@
     },
     {
       "parameters": {
+        "jsCode": "const reports = items.map(item => item.json.text).join('\\n\\n---\\n\\n');\nreturn [{ json: { reports } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        200
+      ],
+      "id": "aggregator",
+      "name": "Aggregate Reports"
+    },
+    {
+      "parameters": {
         "options": {
-          "systemMessage": "You are a Chief Information Security Officer (CISO). \n\nReview the attached reports from SAST, Dependency, and Compliance teams. \n\nGenerate a consolidated, prioritized Security Audit Report with an Executive Summary and Remediation Plan."
+          "systemMessage": "You are a Chief Information Security Officer (CISO). \n\nReview the attached reports from SAST, Dependency, and Compliance teams. \n\nGenerate a consolidated, prioritized Security Audit Report with an Executive Summary and Remediation Plan.\n\nCONTEXT (Sub-Agent Reports):\n{{ $json.reports }}"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.4,
       "position": [
-        1000,
+        1100,
         200
       ],
       "id": "ciso-agent",
@@ -164,7 +188,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
       "position": [
-        1000,
+        1100,
         400
       ],
       "id": "ollama-ciso",
@@ -240,6 +264,17 @@
       "main": [
         [
           {
+            "node": "Aggregate Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Reports": {
+      "main": [
+        [
+          {
             "node": "CISO Agent",
             "type": "main",
             "index": 0
@@ -286,6 +321,38 @@
           {
             "node": "CISO Agent",
             "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "SAST Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dependency Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compliance Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CISO Agent",
+            "type": "ai_memory",
             "index": 0
           }
         ]

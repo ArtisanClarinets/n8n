@@ -1,5 +1,5 @@
 {
-  "name": "Fullstack Feature Accelerator (Google Level)",
+  "name": "Prompt Refinery & Self-Correction Agent (Fortune 500)",
   "nodes": [
     {
       "parameters": {
@@ -13,7 +13,7 @@
       ],
       "id": "trigger",
       "name": "Start Chat",
-      "webhookId": "feature-accelerator"
+      "webhookId": "prompt-refinery"
     },
     {
       "parameters": {},
@@ -29,7 +29,7 @@
     {
       "parameters": {
         "options": {
-          "systemMessage": "You are a Senior Product Owner at a Fortune 500 tech company. \n\nYour goal: Analyze the user's feature request and break it down into detailed User Stories and Acceptance Criteria. \n\nOutput Format: clear, structured Markdown."
+          "systemMessage": "You are a Senior Strategic Analyst. \n\nGOAL: Deeply analyze the user's raw request. \n\nOUTPUT SECTIONS:\n1. **Core Intent**: What is the user actually trying to achieve?\n2. **Implicit Constraints**: What isn't said but is implied (e.g., tone, format)?\n3. **Success Criteria**: What does a 'perfect' result look like?\n\nDo NOT generate the final prompt yet. Just analyze."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
@@ -38,45 +38,8 @@
         220,
         0
       ],
-      "id": "product-owner",
-      "name": "Product Owner Agent"
-    },
-    {
-      "parameters": {
-        "modelName": "llama3",
-        "options": {
-          "temperature": 0.2
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        220,
-        220
-      ],
-      "id": "ollama-po",
-      "name": "Ollama PO",
-      "credentials": {
-        "ollamaApi": {
-          "id": "ollama-local",
-          "name": "Local Ollama"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "options": {
-          "systemMessage": "You are a Principal Database Architect specializing in Prisma and PostgreSQL. \n\nTask: Based on the User Stories provided, design a production-ready Prisma Schema. \n\nGuidelines:\n- Use UUIDs for IDs.\n- specific mapping for table names.\n- Indexes for performance.\n- Enums for status fields.\n\nCONTEXT (User Stories):\n{{ $('Product Owner Agent').item.json.text }}\n\nOutput only the Prisma schema code block."
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.4,
-      "position": [
-        540,
-        0
-      ],
-      "id": "db-architect",
-      "name": "DB Architect Agent"
+      "id": "analyst-agent",
+      "name": "Intent Analyst"
     },
     {
       "parameters": {
@@ -88,11 +51,11 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
       "position": [
-        540,
+        220,
         220
       ],
-      "id": "ollama-db",
-      "name": "Ollama DB",
+      "id": "ollama-analyst",
+      "name": "Ollama Analyst",
       "credentials": {
         "ollamaApi": {
           "id": "ollama-local",
@@ -103,7 +66,44 @@
     {
       "parameters": {
         "options": {
-          "systemMessage": "You are a Senior Backend Engineer specializing in Next.js 16 Server Actions. \n\nTask: Create the Server Actions required to implement the features defined in the schema and stories. \n\nGuidelines:\n- Use 'use server'.\n- Implement Zod validation.\n- Handle errors gracefully.\n- Secure database access.\n\nCONTEXT:\nUser Stories: {{ $('Product Owner Agent').item.json.text }}\nSchema: {{ $('DB Architect Agent').item.json.text }}\n\nOutput the TypeScript code."
+          "systemMessage": "You are a Principal Prompt Engineer at Google. \n\nGOAL: Based on the Analyst's analysis, draft a sophisticated System Prompt.\n\nTECHNIQUES TO USE:\n- Chain of Thought (CoT)\n- Few-Shot Prompting\n- Delimiter usage (XML tags)\n- Persona definition\n\nOutput the DRAFT PROMPT in a markdown block."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        540,
+        0
+      ],
+      "id": "architect-agent",
+      "name": "Prompt Architect"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        540,
+        220
+      ],
+      "id": "ollama-architect",
+      "name": "Ollama Architect",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are an AI Safety & Logic Auditor (Red Team). \n\nGOAL: Ruthlessly critique the Draft Prompt.\n\nCHECK FOR:\n1. **Ambiguity**: Can the LLM misinterpret instructions?\n2. **Security**: Are there injection risks or safety bypasses?\n3. **Bias**: Is the persona too narrow or biased?\n4. **Logic**: Are the steps coherent?\n\nCONTEXT (Draft Prompt):\n{{ $('Prompt Architect').item.json.text }}\n\nOutput a list of CRITICAL ISSUES to fix."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
@@ -112,8 +112,45 @@
         860,
         0
       ],
-      "id": "backend-dev",
-      "name": "Backend Dev Agent"
+      "id": "redteam-agent",
+      "name": "Red Team Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        860,
+        220
+      ],
+      "id": "ollama-redteam",
+      "name": "Ollama RedTeam",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Synthesis Engine. \n\nGOAL: Rewrite the Final Prompt by applying the Red Team's feedback to the Architect's draft. \n\nINSTRUCTIONS:\n- Fix all ambiguities.\n- Add safety guardrails.\n- Polish the language for maximum clarity.\n\nCONTEXT:\nDraft Prompt: {{ $('Prompt Architect').item.json.text }}\nRed Team Feedback: {{ $('Red Team Agent').item.json.text }}\n\nOUTPUT ONLY THE FINAL PERFECTED PROMPT inside a code block."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1180,
+        0
+      ],
+      "id": "refiner-agent",
+      "name": "Refiner Agent"
     },
     {
       "parameters": {
@@ -125,48 +162,11 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
       "position": [
-        860,
-        220
-      ],
-      "id": "ollama-be",
-      "name": "Ollama BE",
-      "credentials": {
-        "ollamaApi": {
-          "id": "ollama-local",
-          "name": "Local Ollama"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "options": {
-          "systemMessage": "You are a Senior Frontend Engineer expert in React 19, Next.js 16, and Tailwind CSS. \n\nTask: Build the React Server Components and Client Components needed. \n\nGuidelines:\n- Use Shadcn/UI patterns (simulated).\n- Use React Suspense and Streaming.\n- Responsive design with Tailwind.\n- Accessibility (ARIA) compliance.\n\nCONTEXT:\nUser Stories: {{ $('Product Owner Agent').item.json.text }}\nBackend Actions: {{ $('Backend Dev Agent').item.json.text }}\n\nOutput the TSX code."
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.4,
-      "position": [
-        1180,
-        0
-      ],
-      "id": "frontend-dev",
-      "name": "Frontend Dev Agent"
-    },
-    {
-      "parameters": {
-        "modelName": "llama3",
-        "options": {
-          "temperature": 0.3
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
         1180,
         220
       ],
-      "id": "ollama-fe",
-      "name": "Ollama FE",
+      "id": "ollama-refiner",
+      "name": "Ollama Refiner",
       "credentials": {
         "ollamaApi": {
           "id": "ollama-local",
@@ -180,84 +180,84 @@
       "main": [
         [
           {
-            "node": "Product Owner Agent",
+            "node": "Intent Analyst",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Product Owner Agent": {
+    "Intent Analyst": {
       "main": [
         [
           {
-            "node": "DB Architect Agent",
+            "node": "Prompt Architect",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "DB Architect Agent": {
+    "Prompt Architect": {
       "main": [
         [
           {
-            "node": "Backend Dev Agent",
+            "node": "Red Team Agent",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Backend Dev Agent": {
+    "Red Team Agent": {
       "main": [
         [
           {
-            "node": "Frontend Dev Agent",
+            "node": "Refiner Agent",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama PO": {
+    "Ollama Analyst": {
       "ai_languageModel": [
         [
           {
-            "node": "Product Owner Agent",
+            "node": "Intent Analyst",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama DB": {
+    "Ollama Architect": {
       "ai_languageModel": [
         [
           {
-            "node": "DB Architect Agent",
+            "node": "Prompt Architect",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama BE": {
+    "Ollama RedTeam": {
       "ai_languageModel": [
         [
           {
-            "node": "Backend Dev Agent",
+            "node": "Red Team Agent",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama FE": {
+    "Ollama Refiner": {
       "ai_languageModel": [
         [
           {
-            "node": "Frontend Dev Agent",
+            "node": "Refiner Agent",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -268,28 +268,28 @@
       "ai_memory": [
         [
           {
-            "node": "Product Owner Agent",
+            "node": "Intent Analyst",
             "type": "ai_memory",
             "index": 0
           }
         ],
         [
           {
-            "node": "DB Architect Agent",
+            "node": "Prompt Architect",
             "type": "ai_memory",
             "index": 0
           }
         ],
         [
           {
-            "node": "Backend Dev Agent",
+            "node": "Red Team Agent",
             "type": "ai_memory",
             "index": 0
           }
         ],
         [
           {
-            "node": "Frontend Dev Agent",
+            "node": "Refiner Agent",
             "type": "ai_memory",
             "index": 0
           }

@@ -16,6 +16,17 @@
       "webhookId": "devops-agent"
     },
     {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1,
+      "position": [
+        220,
+        420
+      ],
+      "id": "memory-window",
+      "name": "Window Buffer Memory"
+    },
+    {
       "parameters": {
         "options": {
           "systemMessage": "You are a DevOps Dispatcher. \n\nClassify the user's request into exactly one of these categories:\n- ARCHITECT: For system design, patterns, cloud infrastructure questions.\n- CODE: For writing new code or scripts.\n- REVIEW: For critiquing existing code.\n- SECURITY: For vulnerability scanning and hardening.\n\nReply with ONLY the category name (e.g., 'ARCHITECT')."
@@ -60,13 +71,13 @@
               "conditions": {
                 "options": {
                   "caseSensitive": true,
-                  "leftValue": "={{ .text.trim() }}",
+                  "leftValue": "={{ $json.text.trim() }}",
                   "typeValidation": "strict",
                   "version": 2
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ .text.trim() }}",
+                    "leftValue": "={{ $json.text.trim() }}",
                     "rightValue": "ARCHITECT",
                     "operator": {
                       "type": "string",
@@ -81,13 +92,13 @@
               "conditions": {
                 "options": {
                   "caseSensitive": true,
-                  "leftValue": "={{ .text.trim() }}",
+                  "leftValue": "={{ $json.text.trim() }}",
                   "typeValidation": "strict",
                   "version": 2
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ .text.trim() }}",
+                    "leftValue": "={{ $json.text.trim() }}",
                     "rightValue": "CODE",
                     "operator": {
                       "type": "string",
@@ -102,13 +113,13 @@
               "conditions": {
                 "options": {
                   "caseSensitive": true,
-                  "leftValue": "={{ .text.trim() }}",
+                  "leftValue": "={{ $json.text.trim() }}",
                   "typeValidation": "strict",
                   "version": 2
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ .text.trim() }}",
+                    "leftValue": "={{ $json.text.trim() }}",
                     "rightValue": "REVIEW",
                     "operator": {
                       "type": "string",
@@ -123,13 +134,13 @@
               "conditions": {
                 "options": {
                   "caseSensitive": true,
-                  "leftValue": "={{ .text.trim() }}",
+                  "leftValue": "={{ $json.text.trim() }}",
                   "typeValidation": "strict",
                   "version": 2
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ .text.trim() }}",
+                    "leftValue": "={{ $json.text.trim() }}",
                     "rightValue": "SECURITY",
                     "operator": {
                       "type": "string",
@@ -351,6 +362,45 @@
           {
             "node": "Security Agent",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Router Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Architect Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Coding Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Security Agent",
+            "type": "ai_memory",
             "index": 0
           }
         ]
