@@ -1,0 +1,415 @@
+{
+  "name": "DevOps Autonomous Agent (Google Level)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger",
+      "name": "Start Chat",
+      "webhookId": "devops-agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a DevOps Dispatcher. \n\nClassify the user's request into exactly one of these categories:\n- ARCHITECT: For system design, patterns, cloud infrastructure questions.\n- CODE: For writing new code or scripts.\n- REVIEW: For critiquing existing code.\n- SECURITY: For vulnerability scanning and hardening.\n\nReply with ONLY the category name (e.g., 'ARCHITECT')."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        220,
+        0
+      ],
+      "id": "router-agent",
+      "name": "Router Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "id": "ollama-router",
+      "name": "Ollama Router",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "={{ .text.trim() }}",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ .text.trim() }}",
+                    "rightValue": "ARCHITECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "={{ .text.trim() }}",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ .text.trim() }}",
+                    "rightValue": "CODE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "={{ .text.trim() }}",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ .text.trim() }}",
+                    "rightValue": "REVIEW",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "={{ .text.trim() }}",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ .text.trim() }}",
+                    "rightValue": "SECURITY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        540,
+        0
+      ],
+      "id": "switch",
+      "name": "Route Intent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Principal Software Architect. Focus on scalability, microservices, reliability, and cloud-native patterns."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        900,
+        -200
+      ],
+      "id": "agent-architect",
+      "name": "Architect Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        900,
+        0
+      ],
+      "id": "ollama-architect",
+      "name": "Ollama Architect",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Senior Full Stack Developer. Write clean, efficient, and well-documented code in the requested language."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        900,
+        200
+      ],
+      "id": "agent-coder",
+      "name": "Coding Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        900,
+        400
+      ],
+      "id": "ollama-coder",
+      "name": "Ollama Coder",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Tech Lead. Review the code for bugs, performance issues, and bad practices. Be strict but constructive."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        900,
+        600
+      ],
+      "id": "agent-reviewer",
+      "name": "Review Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        900,
+        800
+      ],
+      "id": "ollama-reviewer",
+      "name": "Ollama Reviewer",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Security Engineer. Analyze for OWASP Top 10 vulnerabilities, injection flaws, and auth bypass risks."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        900,
+        1000
+      ],
+      "id": "agent-security",
+      "name": "Security Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        900,
+        1200
+      ],
+      "id": "ollama-security",
+      "name": "Ollama Security",
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-local",
+          "name": "Local Ollama"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start Chat": {
+      "main": [
+        [
+          {
+            "node": "Router Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Agent": {
+      "main": [
+        [
+          {
+            "node": "Route Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Intent": {
+      "main": [
+        [
+          {
+            "node": "Architect Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Coding Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Security Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Router": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Router Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Architect": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Architect Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Coder": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Coding Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Reviewer": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Review Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Security": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Security Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
