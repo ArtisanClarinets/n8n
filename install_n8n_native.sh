@@ -85,6 +85,16 @@ install_dependencies() {
     apt-get install -y -q nginx certbot python3-certbot-nginx
 }
 
+install_ollama() {
+    log_info "Installing Ollama..."
+    if ! command -v ollama &> /dev/null; then
+        curl -fsSL https://ollama.com/install.sh | sh
+        log_success "Ollama installed successfully."
+    else
+        log_info "Ollama is already installed."
+    fi
+}
+
 # 3. User Input
 validate_domain() {
     [[ "$1" =~ ^([a-zA-Z0-9](([a-zA-Z0-9-]){0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]
@@ -282,6 +292,7 @@ get_user_input
 update_system
 setup_firewall
 install_dependencies
+install_ollama
 setup_database
 setup_n8n
 setup_nginx_ssl
