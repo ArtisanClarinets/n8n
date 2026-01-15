@@ -3,19 +3,19 @@
 # ==============================================================================
 # n8n Self-Hosted Installer for Ubuntu 22.04 LTS (Enterprise Grade)
 #
-# This script installs Docker, PostgreSQL, Ollama, and n8n in a production-ready
-# configuration. It uses Nginx on the host for SSL termination/reverse proxy.
+# Architecture: Docker Compose (n8n, Postgres, Ollama) + Host Nginx
 #
+# Standards: Fortune-500 Level (Hardened, Idempotent, Resilient)
 # Features:
-# - Idempotent installation
-# - Input validation for domains and emails
-# - Secure secrets management (.env with 600 permissions)
-# - Docker log rotation
-# - Host-based Nginx + Certbot for standard SSL management
-# - Systemd integration for auto-restart
+# - Hardware Pre-flight checks
+# - Retry logic for network operations
+# - Hardened Nginx SSL/TLS config
+# - Structured audit logging
+# - Self-healing firewall and service states
 # ==============================================================================
 
 set -e
+set -o pipefail
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -29,23 +29,50 @@ INSTALL_DIR="/opt/n8n"
 ENV_FILE="$INSTALL_DIR/.env"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 SERVICE_FILE="/etc/systemd/system/n8n-compose.service"
+LOG_FILE="/var/log/n8n_install.log"
 
-# Logging Helpers
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# --- Logging & Error Handling ---
 
-# Error Handling
-cleanup() {
-    if [ $? -ne 0 ]; then
-        log_error "Script failed. Please check the error messages above."
-        log_warn "If this is a fresh install, you may need to manually clean up $INSTALL_DIR"
-    fi
+log() {
+    local level=$1
+    local msg=$2
+    local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+    echo -e "${timestamp} [${level}] ${msg}" | tee -a "$LOG_FILE"
 }
-trap cleanup EXIT
 
-# 1. System Prep & Root Check
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; log "INFO" "$1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; log "SUCCESS" "$1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; log "WARN" "$1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; log "ERROR" "$1"; }
+
+error_handler() {
+    local line_no=$1
+    local command=$2
+    log_error "Failed at line $line_no: $command"
+    log_info "Check audit log at $LOG_FILE for details."
+}
+trap 'error_handler $LINENO "$BASH_COMMAND"' ERR
+
+run_with_retry() {
+    local n=1
+    local max=5
+    local delay=5
+    while true; do
+        "$@" && break || {
+            if [[ $n -lt $max ]]; then
+                ((n++))
+                log_warn "Command failed. Attempt $n/$max:"
+                sleep $delay;
+            else
+                log_error "The command has failed after $max attempts."
+                return 1
+            fi
+        }
+    done
+}
+
+# --- Pre-flight Checks ---
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root. Please use sudo."
@@ -53,12 +80,38 @@ check_root() {
     fi
 }
 
+check_system_resources() {
+    log_info "Performing hardware pre-flight checks..."
+
+    # RAM Check (Min 4GB recommended for Ollama+n8n)
+    local total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local total_mem_gb=$((total_mem_kb / 1024 / 1024))
+
+    if [[ $total_mem_gb -lt 4 ]]; then
+        log_warn "Detected < 4GB RAM ($total_mem_gb GB). AI workloads (Ollama) may be unstable."
+        read -p "Continue anyway? (y/N): " CONFIRM
+        [[ "${CONFIRM,,}" != "y" ]] && exit 1
+    fi
+
+    # Disk Check (Min 10GB free)
+    local free_disk_gb=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G')
+    if [[ $free_disk_gb -lt 10 ]]; then
+        log_error "Insufficient disk space. Need 10GB+, found ${free_disk_gb}GB."
+        exit 1
+    fi
+
+    log_success "Hardware checks passed."
+}
+
+# --- Installation Steps ---
+
 update_system() {
     log_info "Updating system packages..."
-    apt-get update -q && apt-get upgrade -y -q
+    run_with_retry apt-get update -q
+    run_with_retry apt-get upgrade -y -q -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 
     log_info "Installing system dependencies..."
-    apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw nginx certbot python3-certbot-nginx
+    run_with_retry apt-get install -y -q curl wget gnupg git ca-certificates lsb-release ufw nginx certbot python3-certbot-nginx acl
 }
 
 setup_firewall() {
@@ -85,7 +138,7 @@ install_docker() {
         if [ -f /etc/apt/keyrings/docker.gpg ]; then
             rm /etc/apt/keyrings/docker.gpg
         fi
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        run_with_retry curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
 
         echo \
@@ -93,8 +146,8 @@ install_docker() {
           $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
           tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-        apt-get update -q
-        apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        run_with_retry apt-get update -q
+        run_with_retry apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     else
         log_info "Docker is already installed."
     fi
@@ -105,21 +158,14 @@ install_docker() {
     fi
 }
 
-# 2. User Input & Validation
+# --- Configuration ---
+
 validate_domain() {
-    if [[ "$1" =~ ^([a-zA-Z0-9](([a-zA-Z0-9-]){0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-        return 0
-    else
-        return 1
-    fi
+    [[ "$1" =~ ^([a-zA-Z0-9](([a-zA-Z0-9-]){0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]
 }
 
 validate_email() {
-    if [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-        return 0
-    else
-        return 1
-    fi
+    [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]
 }
 
 get_user_input() {
@@ -162,7 +208,6 @@ get_user_input() {
     SKIP_CONFIG=false
 }
 
-# 3. Configuration & Secrets
 setup_configuration() {
     if [[ "$SKIP_CONFIG" == "true" ]]; then
         return
@@ -172,8 +217,8 @@ setup_configuration() {
     mkdir -p "$INSTALL_DIR"
 
     # Generate robust secrets
-    N8N_ENCRYPTION_KEY=$(openssl rand -hex 16)
-    POSTGRES_PASSWORD=$(openssl rand -hex 16)
+    N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
+    POSTGRES_PASSWORD=$(openssl rand -hex 32)
     POSTGRES_USER="n8n"
     POSTGRES_DB="n8n"
 
@@ -204,7 +249,6 @@ EOF
     log_success "Secrets generated and stored securely in $ENV_FILE."
 }
 
-# 4. Docker Setup
 create_docker_compose() {
     # Always recreate docker-compose to ensure it matches the latest template
     # (Environment variables handle the dynamic parts)
@@ -299,7 +343,6 @@ networks:
 EOF
 }
 
-# 5. Systemd Integration
 setup_systemd() {
     log_info "Configuring systemd service..."
 
@@ -328,29 +371,58 @@ EOF
     systemctl start "$(basename "$SERVICE_FILE")"
 }
 
-# 6. Nginx & SSL
 setup_nginx_ssl() {
-    log_info "Configuring Nginx..."
+    log_info "Configuring Nginx (Enterprise Hardened)..."
 
     NGINX_CONF="/etc/nginx/sites-available/$DOMAIN_NAME"
 
-    # Basic HTTP config for Certbot to verify
+    # Hardened Nginx Config
     cat <<EOF > "$NGINX_CONF"
 server {
     listen 80;
     server_name $DOMAIN_NAME;
 
+    # Redirect all HTTP to HTTPS
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN_NAME;
+
+    # SSL Certificates (Placeholder for Certbot)
+    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+    # TLS Hardening
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    # Security Headers
+    add_header X-Frame-Options SAMEORIGIN;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    # n8n Proxy
     location / {
         proxy_pass http://127.0.0.1:${N8N_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
 
-        # Security Headers
-        add_header X-Frame-Options SAMEORIGIN;
-        add_header X-Content-Type-Options nosniff;
+        # Increase body size for file uploads
+        client_max_body_size 50M;
     }
 }
 EOF
@@ -359,16 +431,16 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
 
     # Test and reload
-    nginx -t && systemctl reload nginx
+    nginx -t || { log_error "Nginx configuration failed."; exit 1; }
+    systemctl reload nginx
 
     log_info "Obtaining SSL certificate with Certbot..."
-    # --nginx plugin automatically edits the config to add SSL and redirect HTTP->HTTPS
-    certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect
+    # --nginx plugin automatically edits the config to add SSL
+    run_with_retry certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect
 
     log_success "SSL configured successfully."
 }
 
-# 7. Verification & Health Check
 verify_installation() {
     log_info "Waiting for n8n to start (this may take up to 60 seconds)..."
 
@@ -394,7 +466,6 @@ verify_installation() {
     fi
 }
 
-# 8. Final Output
 show_summary() {
     # Load env variables for display if we skipped config
     if [[ "$SKIP_CONFIG" == "true" ]]; then
@@ -403,7 +474,7 @@ show_summary() {
 
     clear
     echo -e "${GREEN}======================================================${NC}"
-    echo -e "${GREEN}       n8n Installation Completed Successfully!       ${NC}"
+    echo -e "${GREEN}    n8n Enterprise Installation Completed (Docker)    ${NC}"
     echo -e "${GREEN}======================================================${NC}"
     echo ""
     echo -e "Access your n8n instance at: ${YELLOW}https://${DOMAIN_NAME}${NC}"
@@ -423,10 +494,12 @@ show_summary() {
     echo -e "  Logs:    ${BLUE}cd $INSTALL_DIR && docker compose logs -f${NC}"
     echo -e "  Stop:    ${BLUE}systemctl stop n8n-compose${NC}"
     echo ""
+    echo -e "Installation Log: ${LOG_FILE}"
 }
 
 # Main Execution Flow
 check_root
+check_system_resources
 get_user_input
 update_system
 setup_firewall
