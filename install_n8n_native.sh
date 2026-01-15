@@ -309,6 +309,9 @@ EOF
 setup_nginx_ssl() {
     log_info "Configuring Nginx (Enterprise Hardened)..."
 
+    # Ensure webroot exists for Certbot
+    mkdir -p /var/www/certbot
+
     NGINX_CONF="/etc/nginx/sites-available/$DOMAIN_NAME"
 
     # Hardened Nginx Config
@@ -373,7 +376,15 @@ EOF
     # --nginx plugin automatically edits the config to add valid SSL paths
     run_with_retry certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect
 
-    log_success "SSL configured successfully."
+    # Use webroot authenticator (more robust) and nginx installer
+    if certbot run -a webroot -i nginx -w /var/www/certbot -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect; then
+        log_success "SSL configured successfully."
+    else
+        log_error "Certbot failed to obtain SSL certificate."
+        log_warn "Please check that your Domain Name ($DOMAIN_NAME) points to this server's IP."
+        log_warn "Ensure that ports 80 and 443 are open in your firewall (and cloud provider firewall)."
+        exit 1
+    fi
 }
 
 verify_installation() {
