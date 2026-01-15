@@ -235,13 +235,21 @@ EOF
 setup_nginx_ssl() {
     log_info "Configuring Nginx..."
 
+    # Ensure webroot exists for Certbot
+    mkdir -p /var/www/certbot
+
     NGINX_CONF="/etc/nginx/sites-available/$DOMAIN_NAME"
 
-    # Basic HTTP config for Certbot to verify
+    # Basic HTTP config with ACME Challenge Support
     cat <<EOF > "$NGINX_CONF"
 server {
     listen 80;
     server_name $DOMAIN_NAME;
+
+    # ACME Challenge for Certbot (Webroot Method)
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:${N8N_PORT};
@@ -262,13 +270,23 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
 
     # Test and reload
-    nginx -t && systemctl reload nginx
+    if ! nginx -t; then
+        log_error "Nginx configuration test failed. Please check the config."
+        exit 1
+    fi
+    systemctl reload nginx
 
     log_info "Obtaining SSL certificate with Certbot..."
-    # --nginx plugin automatically edits the config to add SSL and redirect HTTP->HTTPS
-    certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect
 
-    log_success "SSL configured successfully."
+    # Use webroot authenticator (more robust) and nginx installer
+    if certbot run -a webroot -i nginx -w /var/www/certbot -d "$DOMAIN_NAME" --non-interactive --agree-tos --email "$EMAIL_ADDRESS" --redirect; then
+        log_success "SSL configured successfully."
+    else
+        log_error "Certbot failed to obtain SSL certificate."
+        log_warn "Please check that your Domain Name ($DOMAIN_NAME) points to this server's IP."
+        log_warn "Ensure that ports 80 and 443 are open in your firewall (and cloud provider firewall)."
+        exit 1
+    fi
 }
 
 # 7. Verification
